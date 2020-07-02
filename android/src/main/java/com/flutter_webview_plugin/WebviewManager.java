@@ -255,7 +255,6 @@ class WebviewManager {
         registerJavaScriptChannelNames(channelNames);
     }
 
-
     private Uri getOutputFilename(String intentType) {
         String prefix = "";
         String suffix = "";
@@ -346,13 +345,6 @@ class WebviewManager {
                     new JavaScriptChannel(FlutterWebviewPlugin.channel, channelName, platformThreadHandler), channelName);
         }
     }
-
-    private void registerJavaScriptChannel(List<JavaScriptChannel> channels) {
-        for (JavaScriptChannel channel : channels) {
-            webView.addJavascriptInterface(channel, channel.getJavaScriptChannelName());
-        }
-    }
-
 
     void openUrl(
             boolean withJavascript,
