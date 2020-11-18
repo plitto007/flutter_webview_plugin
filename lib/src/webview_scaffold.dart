@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter_webview_plugin/src/javascript_channel.dart';
 
 import 'base.dart';
 
@@ -13,6 +12,7 @@ class WebviewScaffold extends StatefulWidget {
     this.appBar,
     @required this.url,
     this.headers,
+    this.cookies,
     this.javascriptChannels,
     this.withJavascript,
     this.clearCache,
@@ -26,7 +26,6 @@ class WebviewScaffold extends StatefulWidget {
     this.displayZoomControls,
     this.withLocalStorage,
     this.withLocalUrl,
-    this.localUrlScope,
     this.withOverviewMode,
     this.useWideViewPort,
     this.scrollBar,
@@ -39,12 +38,18 @@ class WebviewScaffold extends StatefulWidget {
     this.invalidUrlRegex,
     this.geolocationEnabled,
     this.debuggingEnabled = false,
+    this.userName,
+    this.password,
+    this.keyWebView,
+    this.competitionId
   }) : super(key: key);
 
   final PreferredSizeWidget appBar;
   final String url;
+  final String competitionId;
   final Map<String, String> headers;
-  final Set<JavascriptChannel> javascriptChannels;
+  final Map<String, String> cookies;
+  final List<String> javascriptChannels;
   final bool withJavascript;
   final bool clearCache;
   final bool clearCookies;
@@ -57,7 +62,6 @@ class WebviewScaffold extends StatefulWidget {
   final bool displayZoomControls;
   final bool withLocalStorage;
   final bool withLocalUrl;
-  final String localUrlScope;
   final bool scrollBar;
   final bool supportMultipleWindows;
   final bool appCacheEnabled;
@@ -70,6 +74,9 @@ class WebviewScaffold extends StatefulWidget {
   final bool withOverviewMode;
   final bool useWideViewPort;
   final bool debuggingEnabled;
+  final String userName;
+  final String password;
+  final String keyWebView;
 
   @override
   _WebviewScaffoldState createState() => _WebviewScaffoldState();
@@ -79,63 +86,12 @@ class _WebviewScaffoldState extends State<WebviewScaffold> {
   final webviewReference = FlutterWebviewPlugin();
   Rect _rect;
   Timer _resizeTimer;
-  StreamSubscription<WebViewStateChanged> _onStateChanged;
-
-  var _onBack;
-
-  @override
-  void initState() {
-    super.initState();
-    webviewReference.close();
-
-    _onBack = webviewReference.onBack.listen((_) async {
-      if (!mounted) {
-        return;
-      }
-
-      // The willPop/pop pair here is equivalent to Navigator.maybePop(),
-      // which is what's called from the flutter back button handler.
-      final pop = await _topMostRoute.willPop();
-      if (pop == RoutePopDisposition.pop) {
-        // Close the webview if it's on the route at the top of the stack.
-        final isOnTopMostRoute = _topMostRoute == ModalRoute.of(context);
-        if (isOnTopMostRoute) {
-          webviewReference.close();
-        }
-        Navigator.pop(context);
-      }
-    });
-
-    if (widget.hidden) {
-      _onStateChanged =
-          webviewReference.onStateChanged.listen((WebViewStateChanged state) {
-        if (state.type == WebViewState.finishLoad) {
-          webviewReference.show();
-        }
-      });
-    }
-  }
-
-  /// Equivalent to [Navigator.of(context)._history.last].
-  Route<dynamic> get _topMostRoute {
-    var topMost;
-    Navigator.popUntil(context, (route) {
-      topMost = route;
-      return true;
-    });
-    return topMost;
-  }
 
   @override
   void dispose() {
     super.dispose();
-    _onBack?.cancel();
     _resizeTimer?.cancel();
-    webviewReference.close();
-    if (widget.hidden) {
-      _onStateChanged.cancel();
-    }
-    webviewReference.dispose();
+    webviewReference.close(widget.keyWebView);
   }
 
   @override
@@ -152,7 +108,8 @@ class _WebviewScaffoldState extends State<WebviewScaffold> {
             webviewReference.launch(
               widget.url,
               headers: widget.headers,
-              javascriptChannels: widget.javascriptChannels,
+              cookies: widget.cookies,
+              javascriptChannelNames: widget.javascriptChannels,
               withJavascript: widget.withJavascript,
               clearCache: widget.clearCache,
               clearCookies: widget.clearCookies,
@@ -164,7 +121,6 @@ class _WebviewScaffoldState extends State<WebviewScaffold> {
               displayZoomControls: widget.displayZoomControls,
               withLocalStorage: widget.withLocalStorage,
               withLocalUrl: widget.withLocalUrl,
-              localUrlScope: widget.localUrlScope,
               withOverviewMode: widget.withOverviewMode,
               useWideViewPort: widget.useWideViewPort,
               scrollBar: widget.scrollBar,
@@ -174,6 +130,10 @@ class _WebviewScaffoldState extends State<WebviewScaffold> {
               invalidUrlRegex: widget.invalidUrlRegex,
               geolocationEnabled: widget.geolocationEnabled,
               debuggingEnabled: widget.debuggingEnabled,
+              userName: widget.userName,
+              password: widget.password,
+              keyWebView: widget.keyWebView,
+              competitionId: widget.competitionId
             );
           } else {
             if (_rect != value) {
@@ -181,7 +141,7 @@ class _WebviewScaffoldState extends State<WebviewScaffold> {
               _resizeTimer?.cancel();
               _resizeTimer = Timer(const Duration(milliseconds: 250), () {
                 // avoid resizing to fast when build is called multiple time
-                webviewReference.resize(_rect);
+                webviewReference.resize(_rect, widget.keyWebView);
               });
             }
           }

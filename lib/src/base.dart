@@ -3,7 +3,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_webview_plugin/src/javascript_channel.dart';
 
 import 'javascript_message.dart';
 
@@ -26,40 +25,40 @@ class FlutterWebviewPlugin {
 
   final _channel = const MethodChannel(_kChannel);
 
-  final _onBack = StreamController<Null>.broadcast();
-  final _onDestroy = StreamController<Null>.broadcast();
-  final _onUrlChanged = StreamController<String>.broadcast();
+  final _onBack = StreamController<String>.broadcast();
+  final _onDestroy = StreamController<String>.broadcast();
+  final _onUrlChanged = StreamController<WebViewUrlChanged>.broadcast();
   final _onStateChanged = StreamController<WebViewStateChanged>.broadcast();
-  final _onScrollXChanged = StreamController<double>.broadcast();
-  final _onScrollYChanged = StreamController<double>.broadcast();
-  final _onProgressChanged = new StreamController<double>.broadcast();
+  final _onScrollXChanged = StreamController<WebViewScrollChanged>.broadcast();
+  final _onScrollYChanged = StreamController<WebViewScrollChanged>.broadcast();
+  final _onProgressChanged =
+      new StreamController<WebViewScrollChanged>.broadcast();
   final _onHttpError = StreamController<WebViewHttpError>.broadcast();
   final _onPostMessage = StreamController<JavascriptMessage>.broadcast();
-
-  final Map<String, JavascriptChannel> _javascriptChannels =
-      // ignoring warning as min SDK version doesn't support collection literals yet
-      // ignore: prefer_collection_literals
-      Map<String, JavascriptChannel>();
 
   Future<Null> _handleMessages(MethodCall call) async {
     switch (call.method) {
       case 'onBack':
-        _onBack.add(null);
+        _onBack.add(call.arguments['keyWebView']);
         break;
       case 'onDestroy':
-        _onDestroy.add(null);
+        _onDestroy.add(call.arguments['keyWebView']);
         break;
       case 'onUrlChanged':
-        _onUrlChanged.add(call.arguments['url']);
+        _onUrlChanged.add(WebViewUrlChanged(
+            call.arguments['url'], call.arguments['keyWebView']));
         break;
       case 'onScrollXChanged':
-        _onScrollXChanged.add(call.arguments['xDirection']);
+        _onScrollXChanged.add(WebViewScrollChanged(
+            call.arguments['xDirection'], call.arguments['keyWebView']));
         break;
       case 'onScrollYChanged':
-        _onScrollYChanged.add(call.arguments['yDirection']);
+        _onScrollYChanged.add(WebViewScrollChanged(
+            call.arguments['yDirection'], call.arguments['keyWebView']));
         break;
       case 'onProgressChanged':
-        _onProgressChanged.add(call.arguments['progress']);
+        _onProgressChanged.add(WebViewScrollChanged(
+            call.arguments['progress'], call.arguments['keyWebView']));
         break;
       case 'onState':
         _onStateChanged.add(
@@ -69,24 +68,28 @@ class FlutterWebviewPlugin {
         );
         break;
       case 'onHttpError':
-        _onHttpError.add(
-            WebViewHttpError(call.arguments['code'], call.arguments['url']));
+        _onHttpError.add(WebViewHttpError(call.arguments['code'],
+            call.arguments['url'], call.arguments['keyWebView']));
         break;
       case 'javascriptChannelMessage':
-        _handleJavascriptChannelMessage(
-            call.arguments['channel'], call.arguments['message']);
+        final JavascriptMessage javascriptMessage = JavascriptMessage.newInstance(
+            call.arguments['channel'],
+            call.arguments['message'],
+            call.arguments['keyWebView'],
+            call.arguments['params'] ?? '');
+        _onPostMessage.add(javascriptMessage);
         break;
     }
   }
 
   /// Listening the OnDestroy LifeCycle Event for Android
-  Stream<Null> get onDestroy => _onDestroy.stream;
+  Stream<String> get onDestroy => _onDestroy.stream;
 
   /// Listening the back key press Event for Android
-  Stream<Null> get onBack => _onBack.stream;
+  Stream<String> get onBack => _onBack.stream;
 
   /// Listening url changed
-  Stream<String> get onUrlChanged => _onUrlChanged.stream;
+  Stream<WebViewUrlChanged> get onUrlChanged => _onUrlChanged.stream;
 
   /// Listening the onState Event for iOS WebView and Android
   /// content is Map for type: {shouldStart(iOS)|startLoad|finishLoad}
@@ -94,15 +97,18 @@ class FlutterWebviewPlugin {
   Stream<WebViewStateChanged> get onStateChanged => _onStateChanged.stream;
 
   /// Listening web view loading progress estimation, value between 0.0 and 1.0
-  Stream<double> get onProgressChanged => _onProgressChanged.stream;
+  Stream<WebViewScrollChanged> get onProgressChanged =>
+      _onProgressChanged.stream;
 
   /// Listening web view y position scroll change
-  Stream<double> get onScrollYChanged => _onScrollYChanged.stream;
+  Stream<WebViewScrollChanged> get onScrollYChanged => _onScrollYChanged.stream;
 
   /// Listening web view x position scroll change
-  Stream<double> get onScrollXChanged => _onScrollXChanged.stream;
+  Stream<WebViewScrollChanged> get onScrollXChanged => _onScrollXChanged.stream;
 
   Stream<WebViewHttpError> get onHttpError => _onHttpError.stream;
+
+  Stream<JavascriptMessage> get onPostMessage => _onPostMessage.stream;
 
   /// Start the Webview with [url]
   /// - [headers] specify additional HTTP headers
@@ -120,10 +126,6 @@ class FlutterWebviewPlugin {
   ///     It is always enabled in UIWebView of iOS and  can not be disabled.
   /// - [withLocalUrl]: allow url as a local path
   ///     Allow local files on iOs > 9.0
-  /// - [localUrlScope]: allowed folder for local paths
-  ///     iOS only.
-  ///     If null and withLocalUrl is true, then it will use the url as the scope,
-  ///     allowing only itself to be read.
   /// - [scrollBar]: enable or disable scrollbar
   /// - [supportMultipleWindows] enable multiple windows support in Android
   /// - [invalidUrlRegex] is the regular expression of URLs that web view shouldn't load.
@@ -136,7 +138,8 @@ class FlutterWebviewPlugin {
   Future<Null> launch(
     String url, {
     Map<String, String> headers,
-    Set<JavascriptChannel> javascriptChannels,
+    Map<String, String> cookies,
+    List<String> javascriptChannelNames,
     bool withJavascript,
     bool clearCache,
     bool clearCookies,
@@ -148,7 +151,6 @@ class FlutterWebviewPlugin {
     bool displayZoomControls,
     bool withLocalStorage,
     bool withLocalUrl,
-    String localUrlScope,
     bool withOverviewMode,
     bool scrollBar,
     bool supportMultipleWindows,
@@ -158,6 +160,10 @@ class FlutterWebviewPlugin {
     String invalidUrlRegex,
     bool geolocationEnabled,
     bool debuggingEnabled,
+    String userName,
+    String password,
+    String keyWebView,
+    String competitionId,
   }) async {
     final args = <String, dynamic>{
       'url': url,
@@ -171,7 +177,6 @@ class FlutterWebviewPlugin {
       'displayZoomControls': displayZoomControls ?? false,
       'withLocalStorage': withLocalStorage ?? true,
       'withLocalUrl': withLocalUrl ?? false,
-      'localUrlScope': localUrlScope,
       'scrollBar': scrollBar ?? true,
       'supportMultipleWindows': supportMultipleWindows ?? false,
       'appCacheEnabled': appCacheEnabled ?? false,
@@ -181,26 +186,23 @@ class FlutterWebviewPlugin {
       'geolocationEnabled': geolocationEnabled ?? false,
       'withOverviewMode': withOverviewMode ?? false,
       'debuggingEnabled': debuggingEnabled ?? false,
+      'userName': userName ?? '',
+      'password': password ?? '',
+      'keyWebView': keyWebView ?? '',
+      'competitionId': competitionId ?? '',
     };
 
     if (headers != null) {
       args['headers'] = headers;
     }
 
-    _assertJavascriptChannelNamesAreUnique(javascriptChannels);
-
-    if (javascriptChannels != null) {
-      javascriptChannels.forEach((channel) {
-        _javascriptChannels[channel.name] = channel;
-      });
-    } else {
-      if (_javascriptChannels.isNotEmpty) {
-        _javascriptChannels.clear();
-      }
+    if (cookies != null) {
+      args['cookies'] = cookies;
     }
 
-    args['javascriptChannelNames'] =
-        _extractJavascriptChannelNames(javascriptChannels).toList();
+    if (javascriptChannelNames != null) {
+      args['javascriptChannelNames'] = javascriptChannelNames;
+    }
 
     if (rect != null) {
       args['rect'] = {
@@ -214,49 +216,77 @@ class FlutterWebviewPlugin {
   }
 
   /// Execute Javascript inside webview
-  Future<String> evalJavascript(String code) async {
-    final res = await _channel.invokeMethod('eval', {'code': code});
+  Future<String> evalJavascript(String code, String keyWebView) async {
+    var args = {'code': code, 'keyWebView': keyWebView};
+    final res = await _channel.invokeMethod('eval', args);
     return res;
   }
 
   /// Close the Webview
   /// Will trigger the [onDestroy] event
-  Future<Null> close() async {
-    _javascriptChannels.clear();
-    await _channel.invokeMethod('close');
-  }
+  Future<Null> close(String keyWebView) async =>
+      await _channel.invokeMethod('close', {'keyWebView': keyWebView});
 
   /// Reloads the WebView.
-  Future<Null> reload() async => await _channel.invokeMethod('reload');
+  Future<Null> reload(String keyWebView) async =>
+      await _channel.invokeMethod('reload', {'keyWebView': keyWebView});
+
+  /// Check WebView can go back.
+  Future<bool> canGoBack(String keyWebView) async =>
+      await _channel.invokeMethod('canGoBack', {'keyWebView': keyWebView});
 
   /// Navigates back on the Webview.
-  Future<Null> goBack() async => await _channel.invokeMethod('back');
+  Future<Null> goBack(String keyWebView) async =>
+      await _channel.invokeMethod('back', {'keyWebView': keyWebView});
 
   /// Navigates forward on the Webview.
-  Future<Null> goForward() async => await _channel.invokeMethod('forward');
+  Future<Null> goForward(String keyWebView) async =>
+      await _channel.invokeMethod('forward', {'keyWebView': keyWebView});
 
   // Hides the webview
-  Future<Null> hide() async => await _channel.invokeMethod('hide');
+  Future<Null> hide(String keyWebView) async =>
+      await _channel.invokeMethod('hide', {'keyWebView': keyWebView});
 
   // Shows the webview
-  Future<Null> show() async => await _channel.invokeMethod('show');
+  Future<Null> show(String keyWebView) async =>
+      await _channel.invokeMethod('show', {'keyWebView': keyWebView});
+
+  // Shows the webview
+  Future<Null> showToast(String keyWebView, String msg) async => await _channel
+      .invokeMethod('showToast', {'keyWebView': keyWebView, 'message': msg});
 
   // Reload webview with a url
-  Future<Null> reloadUrl(String url, {Map<String, String> headers}) async {
+  Future<Null> reloadUrl(String url, String keyWebView,
+      {Map<String, String> headers}) async {
     final args = <String, dynamic>{'url': url};
     if (headers != null) {
       args['headers'] = headers;
     }
+    if (keyWebView != null) {
+      args['keyWebView'] = keyWebView;
+    }
     await _channel.invokeMethod('reloadUrl', args);
   }
 
+  Future<Null> setCookies(String url, String keyWebView,
+      {Map<String, String> cookies}) async {
+    final args = <String, dynamic>{'url': url};
+    if (cookies != null) {
+      args['cookies'] = cookies;
+    }
+    if (keyWebView != null) {
+      args['keyWebView'] = keyWebView;
+    }
+    await _channel.invokeMethod('setCookies', args);
+  }
+
   // Clean cookies on WebView
-  Future<Null> cleanCookies() async =>
-      await _channel.invokeMethod('cleanCookies');
+  Future<Null> cleanCookies(String keyWebView) async =>
+      await _channel.invokeMethod('cleanCookies', {'keyWebView': keyWebView});
 
   // Stops current loading process
-  Future<Null> stopLoading() async =>
-      await _channel.invokeMethod('stopLoading');
+  Future<Null> stopLoading(String keyWebView) async =>
+      await _channel.invokeMethod('stopLoading', {'keyWebView': keyWebView});
 
   /// Close all Streams
   void dispose() {
@@ -271,22 +301,26 @@ class FlutterWebviewPlugin {
     _instance = null;
   }
 
-  Future<Map<String, String>> getCookies() async {
-    final cookiesString = await evalJavascript('document.cookie');
+  Future<Map<String, String>> getCookies(String keyWebView) async {
     final cookies = <String, String>{};
+    try {
+      final cookiesString =
+          await evalJavascript('document.cookie', keyWebView) ?? '';
 
-    if (cookiesString?.isNotEmpty == true) {
-      cookiesString.split(';').forEach((String cookie) {
-        final split = cookie.split('=');
-        cookies[split[0]] = split[1];
+      cookiesString.replaceAll('\"', '').split('; ').forEach((cookie) {
+        if (cookie.split('=').first.isNotEmpty) {
+          cookies[cookie.split('=').first] = cookie.split('=').last;
+        }
       });
+    } catch (ex) {
+      print(ex);
     }
 
     return cookies;
   }
 
   /// resize webview
-  Future<Null> resize(Rect rect) async {
+  Future<Null> resize(Rect rect, String keyWebView) async {
     final args = {};
     args['rect'] = {
       'left': rect.left,
@@ -294,35 +328,14 @@ class FlutterWebviewPlugin {
       'width': rect.width,
       'height': rect.height,
     };
+    args['keyWebView'] = keyWebView;
     await _channel.invokeMethod('resize', args);
-  }
-
-  Set<String> _extractJavascriptChannelNames(Set<JavascriptChannel> channels) {
-    final Set<String> channelNames = channels == null
-        // ignore: prefer_collection_literals
-        ? Set<String>()
-        : channels.map((JavascriptChannel channel) => channel.name).toSet();
-    return channelNames;
-  }
-
-  void _handleJavascriptChannelMessage(
-      final String channelName, final String message) {
-    _javascriptChannels[channelName]
-        .onMessageReceived(JavascriptMessage(message));
-  }
-
-  void _assertJavascriptChannelNamesAreUnique(
-      final Set<JavascriptChannel> channels) {
-    if (channels == null || channels.isEmpty) {
-      return;
-    }
-
-    assert(_extractJavascriptChannelNames(channels).length == channels.length);
   }
 }
 
 class WebViewStateChanged {
-  WebViewStateChanged(this.type, this.url, this.navigationType);
+  WebViewStateChanged(
+      this.type, this.url, this.navigationType, this.keyWebView);
 
   factory WebViewStateChanged.fromMap(Map<String, dynamic> map) {
     WebViewState t;
@@ -340,17 +353,34 @@ class WebViewStateChanged {
         t = WebViewState.abortLoad;
         break;
     }
-    return WebViewStateChanged(t, map['url'], map['navigationType']);
+    return WebViewStateChanged(
+        t, map['url'], map['navigationType'], map['keyWebView']);
   }
 
   final WebViewState type;
   final String url;
   final int navigationType;
+  final String keyWebView;
 }
 
 class WebViewHttpError {
-  WebViewHttpError(this.code, this.url);
+  WebViewHttpError(this.code, this.url, this.keyWebView);
 
   final String url;
   final String code;
+  final String keyWebView;
+}
+
+class WebViewUrlChanged {
+  WebViewUrlChanged(this.url, this.keyWebView);
+
+  final String url;
+  final String keyWebView;
+}
+
+class WebViewScrollChanged {
+  WebViewScrollChanged(this.value, this.keyWebView);
+
+  final double value;
+  final String keyWebView;
 }

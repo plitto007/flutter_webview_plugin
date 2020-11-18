@@ -3,7 +3,12 @@
 //
 
 #import "GeneratedPluginRegistrant.h"
-#import <flutter_webview_plugin/FlutterWebviewPlugin.h>
+
+#if __has_include(<webview_plugin/FlutterWebviewPlugin.h>)
+#import <webview_plugin/FlutterWebviewPlugin.h>
+#else
+@import webview_plugin;
+#endif
 
 @implementation GeneratedPluginRegistrant
 
