@@ -1,4 +1,4 @@
-package android.src.main.java.pl.itto.webview_plugin;
+package pl.itto.webview_plugin;
 
 import android.app.Activity;
 import android.content.Context;
