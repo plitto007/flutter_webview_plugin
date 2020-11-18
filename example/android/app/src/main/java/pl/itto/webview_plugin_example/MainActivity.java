@@ -1,6 +1,9 @@
-package example.android.app.src.main.java.pl.itto.webview_plugin_example;
+package pl.itto.webview_plugin_example;
+
+import android.os.Bundle;
 
 import io.flutter.embedding.android.FlutterActivity;
+import io.flutter.plugins.GeneratedPluginRegistrant;
 
 public class MainActivity extends FlutterActivity {
 }
