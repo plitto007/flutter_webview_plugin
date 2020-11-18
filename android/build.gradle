@@ -1,5 +1,3 @@
-package android
-
 group 'pl.itto.webview_plugin'
 version '1.0'
 
