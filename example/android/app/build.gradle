@@ -47,6 +47,10 @@ android {
             signingConfig signingConfigs.debug
         }
     }
+
+    packagingOptions {
+        exclude 'res/values​/styles.xml'
+    }
 }
 
 flutter {
